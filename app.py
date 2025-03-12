@@ -26,93 +26,90 @@ def get_user_agent():
 def get_yahoo_recommendations(symbol):
     """מושך המלצות אנליסטים והערכות מ-Yahoo Finance"""
     try:
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')  # ריצה ברקע
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument(f'user-agent={get_user_agent()}')
+        headers = {
+            'User-Agent': get_user_agent(),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://finance.yahoo.com'
+        }
         
-        driver = webdriver.Chrome(options=chrome_options)
-        wait = WebDriverWait(driver, 10)
+        # מידע מדף האנליסטים
+        analysis_url = f'https://finance.yahoo.com/quote/{symbol}/analysis'
+        print(f"מושך מידע מ-Yahoo Finance (אנליסטים): {analysis_url}")
         
         recommendations = {
             'source': 'Yahoo Finance',
-            'url': f'https://finance.yahoo.com/quote/{symbol}/analysis',
+            'url': analysis_url,
             'buy': 0,
             'hold': 0,
-            'sell': 0
+            'sell': 0,
+            'price_targets': [],
+            'earnings_forecast': None,
+            'growth_estimates': None
         }
 
-        try:
-            # ניסיון ראשון - דף האנליסטים
-            driver.get(f'https://finance.yahoo.com/quote/{symbol}/analysis')
-            print(f"מושך מידע מ-Yahoo Finance (אנליסטים)")
-            
-            # המתנה לטעינת הטבלה
-            wait.until(EC.presence_of_element_located((By.TAG_NAME, 'table')))
-            
-            # חיפוש בכל הטבלאות
-            tables = driver.find_elements(By.TAG_NAME, 'table')
-            for table in tables:
-                if 'Recommendation Rating' in table.text or 'Buy' in table.text:
-                    rows = table.find_elements(By.TAG_NAME, 'tr')
-                    for row in rows:
-                        cols = row.find_elements(By.TAG_NAME, 'td')
-                        if len(cols) >= 2:
-                            text = cols[0].text.lower()
-                            try:
-                                count = int(cols[1].text.strip().replace(',', '') or 0)
-                                if any(term in text for term in ['strong buy', 'buy']):
-                                    recommendations['buy'] += count
-                                elif any(term in text for term in ['hold', 'neutral']):
-                                    recommendations['hold'] += count
-                                elif any(term in text for term in ['sell', 'underperform']):
-                                    recommendations['sell'] += count
-                            except ValueError:
-                                continue
+        # ניסיון ראשון - דף האנליסטים
+        response = requests.get(analysis_url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # חיפוש בכל הטבלאות
+        tables = soup.find_all('table')
+        for table in tables:
+            table_text = table.text.lower()
+            if 'recommendation' in table_text or 'analyst' in table_text:
+                rows = table.find_all('tr')
+                for row in rows:
+                    cols = row.find_all('td')
+                    if len(cols) >= 2:
+                        text = cols[0].text.lower()
+                        try:
+                            count = int(cols[1].text.strip().replace(',', '') or 0)
+                            print(f"Yahoo: Found {text} - {count}")
+                            if any(term in text for term in ['strong buy', 'buy']):
+                                recommendations['buy'] += count
+                            elif any(term in text for term in ['hold', 'neutral']):
+                                recommendations['hold'] += count
+                            elif any(term in text for term in ['sell', 'underperform', 'reduce']):
+                                recommendations['sell'] += count
+                        except ValueError:
+                            continue
 
-            # אם לא נמצאו המלצות, ננסה בדף הסטטיסטיקות
-            if recommendations['buy'] + recommendations['hold'] + recommendations['sell'] == 0:
-                driver.get(f'https://finance.yahoo.com/quote/{symbol}/key-statistics')
-                wait.until(EC.presence_of_element_located((By.TAG_NAME, 'table')))
-                
-                tables = driver.find_elements(By.TAG_NAME, 'table')
-                for table in tables:
-                    if 'Recommendation Rating' in table.text:
-                        rows = table.find_elements(By.TAG_NAME, 'tr')
-                        for row in rows:
-                            if 'Recommendation Rating' in row.text:
-                                try:
-                                    rating = float(row.find_elements(By.TAG_NAME, 'td')[1].text)
-                                    if rating <= 2:  # Strong Buy to Buy
-                                        recommendations['buy'] = 5
-                                    elif rating <= 3:  # Hold
-                                        recommendations['hold'] = 5
-                                    else:  # Sell to Strong Sell
-                                        recommendations['sell'] = 5
-                                    break
-                                except:
-                                    continue
+        # ניסיון שני - דף ראשי
+        if recommendations['buy'] + recommendations['hold'] + recommendations['sell'] == 0:
+            main_url = f'https://finance.yahoo.com/quote/{symbol}'
+            response = requests.get(main_url, headers=headers, timeout=10)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # חיפוש המלצות בדף הראשי
+            for td in soup.find_all('td'):
+                if 'data-test' in td.attrs and 'RECOMMENDATION' in td.attrs['data-test']:
+                    rating = td.text.strip().lower()
+                    if any(term in rating for term in ['strong buy', 'buy']):
+                        recommendations['buy'] = 5
+                    elif any(term in rating for term in ['hold', 'neutral']):
+                        recommendations['hold'] = 5
+                    elif any(term in rating for term in ['sell', 'underperform']):
+                        recommendations['sell'] = 5
+                    break
 
-            # אם עדיין אין המלצות, ננסה בדף הראשי
-            if recommendations['buy'] + recommendations['hold'] + recommendations['sell'] == 0:
-                driver.get(f'https://finance.yahoo.com/quote/{symbol}')
-                wait.until(EC.presence_of_element_located((By.TAG_NAME, 'td')))
-                
-                elements = driver.find_elements(By.TAG_NAME, 'td')
-                for element in elements:
-                    if element.get_attribute('data-test') == 'RECOMMENDATION-value':
-                        rating = element.text.strip().lower()
-                        if 'buy' in rating or 'strong buy' in rating:
+        # ניסיון שלישי - דף הסיכום
+        if recommendations['buy'] + recommendations['hold'] + recommendations['sell'] == 0:
+            summary_url = f'https://finance.yahoo.com/quote/{symbol}/key-statistics'
+            response = requests.get(summary_url, headers=headers, timeout=10)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            for row in soup.find_all('tr'):
+                if 'Recommendation Rating' in row.text:
+                    try:
+                        rating = float(row.find_all('td')[1].text)
+                        if rating <= 2:
                             recommendations['buy'] = 3
-                        elif 'hold' in rating or 'neutral' in rating:
+                        elif rating <= 3:
                             recommendations['hold'] = 3
-                        elif 'sell' in rating or 'underperform' in rating:
+                        else:
                             recommendations['sell'] = 3
-                        break
-
-        finally:
-            driver.quit()
+                    except:
+                        pass
 
         total = recommendations['buy'] + recommendations['hold'] + recommendations['sell']
         print(f"Yahoo Total Recommendations: {total}")
@@ -273,95 +270,89 @@ def get_finviz_recommendations(symbol):
 def get_investing_recommendations(symbol):
     """מושך המלצות אנליסטים מ-Investing.com"""
     try:
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument(f'user-agent={get_user_agent()}')
+        headers = {
+            'User-Agent': get_user_agent(),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://www.google.com'
+        }
         
-        driver = webdriver.Chrome(options=chrome_options)
-        wait = WebDriverWait(driver, 10)
+        # ניסיון ראשון - חיפוש ישיר
+        url = f'https://www.investing.com/equities/{symbol.lower()}-technical'
+        print(f"מושך מידע מ-Investing.com (ניסיון ישיר): {url}")
         
         recommendations = {
             'source': 'Investing.com',
-            'url': '',
+            'url': url,
             'buy': 0,
             'hold': 0,
-            'sell': 0
+            'sell': 0,
+            'technical_indicators': None,
+            'moving_averages': None,
+            'summary': None
         }
 
-        try:
-            # ניסיון ראשון - חיפוש ישיר
-            driver.get(f'https://www.investing.com/equities/{symbol.lower()}-technical')
-            print(f"מושך מידע מ-Investing.com")
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 404:
+            # ניסיון שני - חיפוש דרך דף החיפוש
+            search_url = f'https://www.investing.com/search/?q={symbol}'
+            response = requests.get(search_url, headers=headers, timeout=10)
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            try:
-                wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'technicalIndicatorsTbl')))
-                recommendations['url'] = driver.current_url
-            except TimeoutException:
-                # ניסיון שני - חיפוש בדף החיפוש
-                driver.get(f'https://www.investing.com/search/?q={symbol}')
-                wait.until(EC.presence_of_element_located((By.TAG_NAME, 'a')))
-                
-                stock_link = None
-                links = driver.find_elements(By.TAG_NAME, 'a')
-                for link in links:
-                    href = link.get_attribute('href') or ''
-                    if '/equities/' in href and symbol.lower() in href.lower():
-                        stock_link = href
-                        break
-                
-                if stock_link:
-                    driver.get(f"{stock_link}-technical")
-                    wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'technicalIndicatorsTbl')))
-                    recommendations['url'] = driver.current_url
-                else:
-                    return None
+            stock_link = None
+            for link in soup.find_all('a'):
+                href = link.get('href', '')
+                if '/equities/' in href and symbol.lower() in href.lower():
+                    stock_link = href
+                    break
+            
+            if stock_link:
+                url = f'https://www.investing.com{stock_link}-technical'
+                print(f"מושך מידע מ-Investing.com (דרך חיפוש): {url}")
+                response = requests.get(url, headers=headers, timeout=10)
+            else:
+                return None
 
-            # חיפוש המלצות טכניות
-            tables = driver.find_elements(By.CLASS_NAME, 'technicalIndicatorsTbl')
-            for table in tables:
-                rows = table.find_elements(By.TAG_NAME, 'tr')
-                for row in rows:
-                    cols = row.find_elements(By.TAG_NAME, 'td')
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # חיפוש המלצות טכניות
+        for table in soup.find_all('table'):
+            if 'technical-summary' in table.get('class', []):
+                for row in table.find_all('tr'):
+                    cols = row.find_all('td')
                     if len(cols) >= 2:
                         indicator = cols[0].text.strip().lower()
                         signal = cols[1].text.strip().lower()
                         
                         if 'moving averages' in indicator:
-                            if 'strong buy' in signal or 'buy' in signal:
-                                recommendations['buy'] += 3
-                            elif 'neutral' in signal:
-                                recommendations['hold'] += 3
-                            elif 'sell' in signal or 'strong sell' in signal:
-                                recommendations['sell'] += 3
-                        
-                        elif 'technical indicators' in indicator:
+                            recommendations['moving_averages'] = signal
                             if 'strong buy' in signal or 'buy' in signal:
                                 recommendations['buy'] += 2
                             elif 'neutral' in signal:
                                 recommendations['hold'] += 2
                             elif 'sell' in signal or 'strong sell' in signal:
                                 recommendations['sell'] += 2
-
-            # חיפוש בסיכום הטכני
-            try:
-                summary = driver.find_element(By.CLASS_NAME, 'summary')
-                summary_text = summary.text.lower()
-                if 'buy' in summary_text or 'strong buy' in summary_text:
-                    recommendations['buy'] += 1
-                elif 'hold' in summary_text or 'neutral' in summary_text:
-                    recommendations['hold'] += 1
-                elif 'sell' in summary_text or 'strong sell' in summary_text:
-                    recommendations['sell'] += 1
-            except NoSuchElementException:
-                pass
-
-        finally:
-            driver.quit()
+                                
+                        elif 'technical indicators' in indicator:
+                            recommendations['technical_indicators'] = signal
+                            if 'strong buy' in signal or 'buy' in signal:
+                                recommendations['buy'] += 2
+                            elif 'neutral' in signal:
+                                recommendations['hold'] += 2
+                            elif 'sell' in signal or 'strong sell' in signal:
+                                recommendations['sell'] += 2
+                                
+                        elif 'summary' in indicator:
+                            recommendations['summary'] = signal
+                            if 'strong buy' in signal or 'buy' in signal:
+                                recommendations['buy'] += 1
+                            elif 'neutral' in signal:
+                                recommendations['hold'] += 1
+                            elif 'sell' in signal or 'strong sell' in signal:
+                                recommendations['sell'] += 1
 
         total = recommendations['buy'] + recommendations['hold'] + recommendations['sell']
-        print(f"Investing.com Total Recommendations: {total}")
+        print(f"Investing.com Total Signals: {total}")
         return recommendations if total > 0 else None
 
     except Exception as e:
@@ -436,124 +427,6 @@ def get_tipranks_recommendations(symbol):
         print(f"שגיאה במשיכת מידע מ-TipRanks: {str(e)}")
         return None
 
-def get_globes_recommendations(symbol):
-    """מושך המלצות אנליסטים מ-Globes"""
-    try:
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument(f'user-agent={get_user_agent()}')
-        
-        driver = webdriver.Chrome(options=chrome_options)
-        wait = WebDriverWait(driver, 10)
-        
-        recommendations = {
-            'source': 'Globes',
-            'url': f'https://www.globes.co.il/portal/instrument.aspx?instrumentid={symbol}',
-            'buy': 0,
-            'hold': 0,
-            'sell': 0,
-            'target_price': None
-        }
-
-        try:
-            driver.get(f'https://www.globes.co.il/portal/instrument.aspx?instrumentid={symbol}')
-            print(f"מושך מידע מ-Globes")
-            
-            # המתנה לטעינת הדף
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'recommendations')))
-            
-            # חיפוש המלצות אנליסטים
-            recommendations_div = driver.find_element(By.CLASS_NAME, 'recommendations')
-            if recommendations_div:
-                text = recommendations_div.text.lower()
-                buy_match = re.search(r'קניה[:\s]+(\d+)', text)
-                hold_match = re.search(r'החזק[:\s]+(\d+)', text)
-                sell_match = re.search(r'מכור[:\s]+(\d+)', text)
-                
-                if buy_match:
-                    recommendations['buy'] = int(buy_match.group(1))
-                if hold_match:
-                    recommendations['hold'] = int(hold_match.group(1))
-                if sell_match:
-                    recommendations['sell'] = int(sell_match.group(1))
-                
-                # מחיר יעד
-                target_price = re.search(r'מחיר יעד[:\s]+₪?(\d+\.?\d*)', text)
-                if target_price:
-                    recommendations['target_price'] = float(target_price.group(1))
-
-        finally:
-            driver.quit()
-
-        total = recommendations['buy'] + recommendations['hold'] + recommendations['sell']
-        print(f"Globes Total Recommendations: {total}")
-        return recommendations if total > 0 else None
-
-    except Exception as e:
-        print(f"שגיאה במשיכת מידע מ-Globes: {str(e)}")
-        return None
-
-def get_themarker_recommendations(symbol):
-    """מושך המלצות אנליסטים מ-TheMarker"""
-    try:
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument(f'user-agent={get_user_agent()}')
-        
-        driver = webdriver.Chrome(options=chrome_options)
-        wait = WebDriverWait(driver, 10)
-        
-        recommendations = {
-            'source': 'TheMarker',
-            'url': f'https://www.themarker.com/markets/quotes/{symbol}',
-            'buy': 0,
-            'hold': 0,
-            'sell': 0,
-            'target_price': None
-        }
-
-        try:
-            driver.get(f'https://www.themarker.com/markets/quotes/{symbol}')
-            print(f"מושך מידע מ-TheMarker")
-            
-            # המתנה לטעינת הדף
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'analysts-recommendations')))
-            
-            # חיפוש המלצות אנליסטים
-            recommendations_div = driver.find_element(By.CLASS_NAME, 'analysts-recommendations')
-            if recommendations_div:
-                text = recommendations_div.text.lower()
-                buy_match = re.search(r'קניה[:\s]+(\d+)', text)
-                hold_match = re.search(r'החזק[:\s]+(\d+)', text)
-                sell_match = re.search(r'מכור[:\s]+(\d+)', text)
-                
-                if buy_match:
-                    recommendations['buy'] = int(buy_match.group(1))
-                if hold_match:
-                    recommendations['hold'] = int(hold_match.group(1))
-                if sell_match:
-                    recommendations['sell'] = int(sell_match.group(1))
-                
-                # מחיר יעד
-                target_price = re.search(r'מחיר יעד[:\s]+₪?(\d+\.?\d*)', text)
-                if target_price:
-                    recommendations['target_price'] = float(target_price.group(1))
-
-        finally:
-            driver.quit()
-
-        total = recommendations['buy'] + recommendations['hold'] + recommendations['sell']
-        print(f"TheMarker Total Recommendations: {total}")
-        return recommendations if total > 0 else None
-
-    except Exception as e:
-        print(f"שגיאה במשיכת מידע מ-TheMarker: {str(e)}")
-        return None
-
 def get_stock_info(symbol):
     """אוסף מידע על מניה מכל המקורות הזמינים"""
     try:
@@ -564,35 +437,59 @@ def get_stock_info(symbol):
         print("\nאוסף המלצות אנליסטים...")
         recommendations = []
         
-        # מקורות חדשים
+        # TipRanks
         tipranks_rec = get_tipranks_recommendations(symbol)
         if tipranks_rec:
             recommendations.append(tipranks_rec)
             
-        globes_rec = get_globes_recommendations(symbol)
-        if globes_rec:
-            recommendations.append(globes_rec)
-            
-        themarker_rec = get_themarker_recommendations(symbol)
-        if themarker_rec:
-            recommendations.append(themarker_rec)
-        
-        # מקורות קיימים
-        yahoo_rec = get_yahoo_recommendations(symbol)
-        if yahoo_rec:
-            recommendations.append(yahoo_rec)
-            
+        # MarketWatch
         marketwatch_rec = get_marketwatch_recommendations(symbol)
         if marketwatch_rec:
             recommendations.append(marketwatch_rec)
             
+        # Finviz
         finviz_rec = get_finviz_recommendations(symbol)
         if finviz_rec:
             recommendations.append(finviz_rec)
         
+        # Investing.com
         investing_rec = get_investing_recommendations(symbol)
         if investing_rec:
             recommendations.append(investing_rec)
+        
+        # קבלת מידע בסיסי מ-Finviz
+        try:
+            finviz_url = f'https://finviz.com/quote.ashx?t={symbol}'
+            headers = {'User-Agent': get_user_agent()}
+            response = requests.get(finviz_url, headers=headers)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            snapshot_table = soup.find('table', {'class': 'snapshot-table2'})
+            if snapshot_table:
+                rows = snapshot_table.find_all('tr')
+                for row in rows:
+                    cols = row.find_all('td')
+                    for i in range(0, len(cols), 2):
+                        if i + 1 < len(cols):
+                            key = cols[i].text.strip()
+                            value = cols[i + 1].text.strip()
+                            
+                            if key == 'Company':
+                                stock_data['name'] = value
+                            elif key == 'Price':
+                                stock_data['price'] = value
+                            elif key == 'Change':
+                                stock_data['change_percent'] = value.strip('%')
+                            elif key == 'Target Price':
+                                stock_data['target_price'] = value
+                            elif key == 'P/E':
+                                stock_data['pe_ratio'] = value
+                            elif key == 'EPS (ttm)':
+                                stock_data['eps'] = value
+                            elif key == 'Volume':
+                                stock_data['volume'] = value
+        except Exception as e:
+            print(f"שגיאה בקבלת מידע בסיסי מ-Finviz: {str(e)}")
         
         if recommendations:
             stock_data['recommendations'] = recommendations
@@ -681,21 +578,8 @@ def analyze_stock_data(stock_data):
                 analysis.append(f"החזקה: {hold} אנליסטים ({hold*100/total:.1f}%)")
                 analysis.append(f"מכירה: {sell} אנליסטים ({sell*100/total:.1f}%)")
                 
-                # מידע נוסף מ-Yahoo Finance
-                if source == 'Yahoo Finance':
-                    if rec.get('price_targets'):
-                        analysis.append("\nתחזיות מחיר:")
-                        for target in rec['price_targets']:
-                            analysis.append(f"- {target['type']}: ${target['value']}")
-                    
-                    if rec.get('earnings_forecast'):
-                        analysis.append(f"\nתחזית רווח לרבעון הנוכחי: {rec['earnings_forecast']}")
-                    
-                    if rec.get('growth_estimates'):
-                        analysis.append(f"תחזית צמיחה ל-5 שנים: {rec['growth_estimates']}")
-                
                 # מידע נוסף מ-Finviz
-                elif source == 'Finviz':
+                if source == 'Finviz':
                     if rec.get('institutional_ownership'):
                         analysis.append(f"\nאחזקות מוסדיות: {rec['institutional_ownership']}")
                     
