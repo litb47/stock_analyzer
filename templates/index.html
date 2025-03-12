@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מנתח המניות החכם</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        h1, h2, h3, h4 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        input[type="text"] {
+            padding: 10px;
+            width: 200px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-right: 10px;
+            text-align: center;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        #result {
+            margin-top: 20px;
+            display: none;
+        }
+        .error {
+            color: red;
+            text-align: center;
+            margin: 10px 0;
+        }
+        .stock-info {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .stock-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .stock-name {
+            font-size: 24px;
+            font-weight: bold;
+            flex: 1;
+        }
+        .stock-price {
+            font-size: 24px;
+            font-weight: bold;
+            color: #0d6efd;
+        }
+        .stock-change {
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-weight: bold;
+            min-width: 80px;
+            text-align: center;
+        }
+        .positive {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .negative {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .metric-box {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .metric-box h4 {
+            margin: 0 0 10px 0;
+            color: #495057;
+            font-size: 14px;
+        }
+        .metric-box p {
+            margin: 0;
+            font-size: 18px;
+            font-weight: bold;
+            color: #0d6efd;
+        }
+        .recommendations {
+            margin-top: 30px;
+        }
+        .recommendation-source {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .recommendation-source h4 {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .source-link {
+            font-size: 14px;
+            color: #6c757d;
+            text-decoration: none;
+        }
+        .source-link:hover {
+            color: #0d6efd;
+        }
+        .recommendation-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .stat-item {
+            text-align: center;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .buy-stat {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .hold-stat {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .sell-stat {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .recommendation-bars {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            height: 30px;
+        }
+        .recommendation-bar {
+            flex: 1;
+            background-color: #e9ecef;
+            border-radius: 5px;
+            overflow: hidden;
+            position: relative;
+        }
+        .bar-fill {
+            position: absolute;
+            height: 100%;
+            left: 0;
+            transition: width 0.3s ease;
+        }
+        .buy-bar { background-color: #28a745; }
+        .hold-bar { background-color: #ffc107; }
+        .sell-bar { background-color: #dc3545; }
+        .recommendation-summary {
+            background-color: #e9ecef;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 30px;
+        }
+        .final-recommendation {
+            text-align: center;
+            font-size: 24px;
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .analyst-count {
+            font-weight: bold;
+            font-size: 24px;
+            display: block;
+            margin-bottom: 5px;
+        }
+        .percentage {
+            font-size: 14px;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>מנתח המניות החכם</h1>
+        
+        <div class="input-group">
+            <p>הכנס סימול מניה (לדוגמה: AAPL עבור Apple):</p>
+            <input type="text" id="symbol" placeholder="סימול מניה" value="AAPL">
+            <button onclick="analyzeStock()">קבל ניתוח מקיף</button>
+        </div>
+
+        <div id="loading">
+            מנתח את המניה, אנא המתן...
+            <br>
+            <img src="https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif" alt="Loading">
+        </div>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+        function analyzeStock() {
+            const symbol = document.getElementById('symbol').value.trim();
+            if (!symbol) {
+                showError('נא להזין סימול מניה');
+                return;
+            }
+
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').style.display = 'none';
+
+            fetch('/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `symbol=${encodeURIComponent(symbol)}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loading').style.display = 'none';
+                if (data.success) {
+                    displayResults(data);
+                } else {
+                    showError(data.error);
+                }
+            })
+            .catch(error => {
+                document.getElementById('loading').style.display = 'none';
+                showError('אירעה שגיאה בעת ניתוח המניה');
+                console.error('Error:', error);
+            });
+        }
+
+        function displayResults(data) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+
+            let html = `
+                <div class="stock-info">
+                    <div class="stock-header">
+                        <div class="stock-name">${data.stock_info.name}</div>
+                        <div class="stock-price">$${data.stock_info.price}</div>
+                        <div class="stock-change ${parseFloat(data.stock_info.change_percent) >= 0 ? 'positive' : 'negative'}">
+                            ${data.stock_info.change_percent}%
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // עיבוד וארגון הניתוח
+            const analysisLines = data.analysis.split('\n');
+            let currentSection = '';
+            let recommendationData = {};
+            let inMetricsGrid = false;
+            
+            analysisLines.forEach(line => {
+                if (line.includes('מחיר יעד') || line.includes('מכפיל רווח') || 
+                    line.includes('רווח למניה') || line.includes('נפח מסחר')) {
+                    const [label, value] = line.split(':');
+                    if (!inMetricsGrid) {
+                        html += '<div class="metrics-grid">';
+                        inMetricsGrid = true;
+                    }
+                    html += `
+                        <div class="metric-box">
+                            <h4>${label}</h4>
+                            <p>${value.trim()}</p>
+                        </div>
+                    `;
+                }
+                
+                if (line.includes('המלצות אנליסטים')) {
+                    if (inMetricsGrid) {
+                        html += '</div>';
+                        inMetricsGrid = false;
+                    }
+                    html += '<div class="recommendations">';
+                    html += `<h3>${line}</h3>`;
+                } else if (line.includes('מקור:')) {
+                    if (currentSection) {
+                        html += '</div>';
+                    }
+                    const [source, url] = line.split('(מקור: ');
+                    currentSection = source.trim();
+                    const cleanUrl = url.replace('):', '');
+                    recommendationData = {};
+                    html += `
+                        <div class="recommendation-source">
+                            <h4>
+                                ${currentSection}
+                                <a href="${cleanUrl}" target="_blank" class="source-link">צפה במקור</a>
+                            </h4>
+                            <div class="recommendation-stats">
+                    `;
+                } else if (line.includes('אנליסטים')) {
+                    const match = line.match(/(קנייה|החזקה|מכירה): (\d+) אנליסטים \((\d+\.\d+)%\)/);
+                    if (match) {
+                        const [_, type, count, percentage] = match;
+                        recommendationData[type] = {
+                            count: parseInt(count),
+                            percentage: parseFloat(percentage)
+                        };
+                        
+                        const statClass = type === 'קנייה' ? 'buy-stat' : 
+                                        type === 'החזקה' ? 'hold-stat' : 'sell-stat';
+                        
+                        html += `
+                            <div class="stat-item ${statClass}">
+                                <span class="analyst-count">${count}</span>
+                                <div>${type}</div>
+                                <span class="percentage">${percentage}%</span>
+                            </div>
+                        `;
+                        
+                        if (Object.keys(recommendationData).length === 3) {
+                            html += `
+                                </div>
+                                <div class="recommendation-bars">
+                                    <div class="recommendation-bar">
+                                        <div class="bar-fill buy-bar" style="width: ${recommendationData['קנייה'].percentage}%"></div>
+                                    </div>
+                                    <div class="recommendation-bar">
+                                        <div class="bar-fill hold-bar" style="width: ${recommendationData['החזקה'].percentage}%"></div>
+                                    </div>
+                                    <div class="recommendation-bar">
+                                        <div class="bar-fill sell-bar" style="width: ${recommendationData['מכירה'].percentage}%"></div>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    }
+                } else if (line.includes('סיכום המלצות')) {
+                    if (currentSection) {
+                        html += '</div>';
+                    }
+                    html += '<div class="recommendation-summary">';
+                    html += `<h3>${line}</h3>`;
+                    recommendationData = {};
+                } else if (line.includes('המלצה כללית')) {
+                    if (currentSection) {
+                        html += '</div>';
+                    }
+                    html += `<div class="final-recommendation">${line}</div>`;
+                }
+            });
+
+            resultDiv.innerHTML = html;
+        }
+
+        function showError(message) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = `<div class="error">${message}</div>`;
+        }
+    </script>
+</body>
+</html>
